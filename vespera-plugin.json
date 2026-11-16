@@ -1,0 +1,32 @@
+{
+  "id": "status-image",
+  "name": { "zh": "状态图片", "en": "Status images" },
+  "description": {
+    "zh": "把节点的实时状态做成图片：小徽章、单节点卡片和全部节点的状态看板，可以贴到 README、论坛签名或网站里。",
+    "en": "Live node status as images: small badges, a card per node and a board of all nodes, to embed in a README, a forum signature or a site."
+  },
+  "author": "Vespera",
+  "version": "1.0.0",
+  "url": "https://github.com/CIXMEDTECH/Vespera/tree/main/examples/plugin-status-image",
+  "icon": "image",
+  "vespera": ">=0.1.0-beta.8.3",
+  "entry": "main.js",
+  "permissions": ["nodes", "routes", "routes:public"],
+  "public_routes": ["/badge/*", "/card/*", "/board.svg"],
+  "configuration": [
+    {
+      "key": "board_limit",
+      "type": "number",
+      "name": { "zh": "状态看板最多显示的节点数", "en": "Most nodes shown on the board" },
+      "default": 30
+    },
+    {
+      "key": "show_usage",
+      "type": "switch",
+      "name": { "zh": "在卡片和看板上显示 CPU、内存、磁盘和网速", "en": "Show CPU, memory, disk and network on cards and the board" },
+      "help": { "zh": "关闭后图片只显示在线状态和可用率。", "en": "When off, images show only whether nodes are up and their availability." },
+      "default": true
+    }
+  ],
+  "pages": [{ "file": "ui/index.html", "title": { "zh": "状态图片", "en": "Status images" }, "icon": "image" }]
+}
