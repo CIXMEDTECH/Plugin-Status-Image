@@ -182,74 +182,132 @@ function board(s, nodes, zh, c, now) {
 }
 
 // ---- addresses ----------------------------------------------------------------
-const image = (svg, maxAge) => ({ status: 200, headers: { "content-type": "image/svg+xml; charset=utf-8", "cache-control": `public, max-age=${maxAge}` }, body: svg });
+// Every picture comes as .svg, .png, .jpg, or .mjpeg: a live JPEG stream that draws
+// itself again every few seconds for as long as it is on screen. The panel turns
+// the SVG into pixels with the fonts in this plugin's fonts/ folder.
+const KINDS = ["svg", "png", "jpg", "mjpeg"];
 const missing = { status: 404, body: "" };
-const named = (path, prefix) => (path.startsWith(prefix) && path.endsWith(".svg") ? path.slice(prefix.length, -4) : null);
+const gone = () => {
+  throw new Error("no longer shown");
+};
+/** `/card/<name>.<kind>` → { name, kind }. */
+function address(path, prefix) {
+  if (!path.startsWith(prefix)) return null;
+  const rest = path.slice(prefix.length), dot = rest.lastIndexOf(".");
+  const kind = rest.slice(dot + 1);
+  return dot > 0 && KINDS.includes(kind) ? { name: rest.slice(0, dot), kind } : null;
+}
+const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
 
-// /badge/node/<uuid>.svg and /badge/page/<slug>.svg; ?metric=uptime, ?label=, ?lang=zh
+/**
+ * Hand a drawing out as the kind of picture asked for. `draw` is called for every
+ * picture of a stream, so it reads the state afresh each time.
+ */
+async function deliver(kind, q, draw, maxAge, background) {
+  // ?scale=2 for sharp pictures on high-density screens.
+  const scale = q.scale === "2" ? 2 : 1;
+  const cache = { "cache-control": `public, max-age=${maxAge}` };
+  if (kind === "svg") return { status: 200, headers: Object.assign({ "content-type": "image/svg+xml; charset=utf-8" }, cache), body: await draw() };
+  if (kind === "png") return { image: await draw(), format: "png", scale, headers: cache };
+  if (kind === "jpg") return { image: await draw(), format: "jpeg", scale, background, quality: 88, headers: cache };
+  const cfg = await v.config.get();
+  if (cfg.live === false) return missing;
+  const min = clamp(Math.round(Number(cfg.live_interval) || 2), 1, 60);
+  const every = clamp(parseInt(q.interval, 10) || min, min, 60);
+  return { stream: draw, interval: every * 1000, scale, background, quality: 80 };
+}
+
+function clock() {
+  const t = v.time.now(), p = (n) => String(n).padStart(2, "0");
+  return `${p(t.hour)}:${p(t.minute)}:${p(t.second)}`;
+}
+
+// /badge/node/<uuid>.<kind> and /badge/page/<slug>.<kind>; ?metric=uptime, ?label=, ?lang=zh
 v.route("GET", "/badge/*", async (req) => {
   const s = await state();
   if (s.site.private) return missing;
   const q = query(req), zh = q.lang === "zh";
-  const uuid = named(req.path, "/badge/node/"), slug = named(req.path, "/badge/page/");
-  if (uuid) {
-    const n = s.nodes.find((x) => x.uuid === uuid);
-    if (!n) return missing;
-    const label = (q.label || "").trim() || n.name;
-    if (q.metric === "uptime") {
-      const p = percent((await uptime())[n.id]);
-      return image(badge(label, p.text, p.color), 60);
-    }
-    const st = status(n, zh);
-    return image(badge(label, st.text, st.color), 30);
+  const node = address(req.path, "/badge/node/"), page = address(req.path, "/badge/page/");
+  if (node) {
+    const first = s.nodes.find((x) => x.uuid === node.name);
+    if (!first) return missing;
+    const label = (q.label || "").trim() || first.name;
+    const draw = async () => {
+      const n = (await state()).nodes.find((x) => x.uuid === node.name) || gone();
+      if (q.metric === "uptime") {
+        const p = percent((await uptime())[n.id]);
+        return badge(label, p.text, p.color);
+      }
+      const st = status(n, zh);
+      return badge(label, st.text, st.color);
+    };
+    return deliver(node.kind, q, draw, q.metric === "uptime" ? 60 : 30, "#ffffff");
   }
-  if (slug) {
-    const page = (await v.status.pages()).find((p) => p.slug === slug && p.enabled);
-    if (!page) return missing;
-    // A status page may list hidden nodes on purpose: its badge counts them too.
-    const all = await v.nodes.list(), live = await v.nodes.live();
-    const nodes = all.filter((n) => page.node_ids.includes(n.id));
-    const label = (q.label || "").trim() || page.title;
-    if (q.metric === "uptime") {
-      const of = await uptime();
-      const known = nodes.map((n) => of[n.id]).filter((p) => p !== null && p !== undefined);
-      const p = percent(known.length ? known.reduce((a, b) => a + b, 0) / known.length : null);
-      return image(badge(label, p.text, p.color), 60);
-    }
-    const down = nodes.filter((n) => !n.online && !(live[n.id] || {}).maintenance).length;
-    if (nodes.length === 0) return image(badge(label, "–", GRAY), 30);
-    if (down === 0) return image(badge(label, zh ? "全部正常" : "operational", GREEN), 30);
-    return image(badge(label, down === nodes.length ? (zh ? "全部故障" : "down") : zh ? "部分故障" : "degraded", down === nodes.length ? RED : AMBER), 30);
+  if (page) {
+    const first = (await v.status.pages()).find((p) => p.slug === page.name && p.enabled);
+    if (!first) return missing;
+    const label = (q.label || "").trim() || first.title;
+    const draw = async () => {
+      const pg = (await v.status.pages()).find((p) => p.slug === page.name && p.enabled) || gone();
+      // A status page may list hidden nodes on purpose: its badge counts them too.
+      const all = await v.nodes.list(), live = await v.nodes.live();
+      const nodes = all.filter((n) => pg.node_ids.includes(n.id));
+      if (q.metric === "uptime") {
+        const of = await uptime();
+        const known = nodes.map((n) => of[n.id]).filter((p) => p !== null && p !== undefined);
+        const p = percent(known.length ? known.reduce((a, b) => a + b, 0) / known.length : null);
+        return badge(label, p.text, p.color);
+      }
+      const down = nodes.filter((n) => !n.online && !(live[n.id] || {}).maintenance).length;
+      if (nodes.length === 0) return badge(label, "–", GRAY);
+      if (down === 0) return badge(label, zh ? "全部正常" : "operational", GREEN);
+      const allDown = down === nodes.length;
+      return badge(label, allDown ? (zh ? "全部故障" : "down") : zh ? "部分故障" : "degraded", allDown ? RED : AMBER);
+    };
+    return deliver(page.kind, q, draw, q.metric === "uptime" ? 60 : 30, "#ffffff");
   }
   return missing;
 });
 
-// /card/<uuid>.svg; ?theme=dark, ?lang=zh
+// /card/<uuid>.<kind>; ?theme=dark, ?lang=zh
 v.route("GET", "/card/*", async (req) => {
   const s = await state();
-  const uuid = named(req.path, "/card/");
-  const n = !s.site.private && uuid ? s.nodes.find((x) => x.uuid === uuid) : null;
-  if (!n) return missing;
-  const q = query(req);
-  return image(card(n, s, q.lang === "zh", THEMES[q.theme] || THEMES.light), 10);
+  const a = address(req.path, "/card/");
+  if (s.site.private || !a || !s.nodes.some((x) => x.uuid === a.name)) return missing;
+  const q = query(req), c = THEMES[q.theme] || THEMES.light;
+  const draw = async () => {
+    const now = await state();
+    if (now.site.private) gone();
+    return card(now.nodes.find((x) => x.uuid === a.name) || gone(), now, q.lang === "zh", c);
+  };
+  return deliver(a.kind, q, draw, 10, c.bg);
 });
 
-// /board.svg; ?theme=dark, ?lang=zh, ?group=<node group>
-v.route("GET", "/board.svg", async (req) => {
-  const s = await state();
-  if (s.site.private) return missing;
-  const q = query(req), t = v.time.now();
-  const nodes = q.group ? s.nodes.filter((n) => n.group === q.group) : s.nodes;
-  const clock = `${String(t.hour).padStart(2, "0")}:${String(t.minute).padStart(2, "0")}`;
-  return image(board(s, nodes, q.lang === "zh", THEMES[q.theme] || THEMES.light, clock), 10);
-});
+// /board.<kind>; ?theme=dark, ?lang=zh, ?group=<node group>
+for (const kind of KINDS) {
+  v.route("GET", `/board.${kind}`, async (req) => {
+    const s = await state();
+    if (s.site.private) return missing;
+    const q = query(req), c = THEMES[q.theme] || THEMES.light;
+    const draw = async () => {
+      const now = await state();
+      if (now.site.private) gone();
+      const nodes = q.group ? now.nodes.filter((n) => n.group === q.group) : now.nodes;
+      return board(now, nodes, q.lang === "zh", c, clock());
+    };
+    return deliver(kind, q, draw, 10, c.bg);
+  });
+}
 
 // For the page: what can be drawn.
 v.route("GET", "/targets", async () => {
   const s = await state();
   const pages = await v.status.pages();
+  const cfg = await v.config.get();
   return {
     private: !!s.site.private,
+    live: cfg.live !== false,
+    live_interval: clamp(Math.round(Number(cfg.live_interval) || 2), 1, 60),
     url: s.site.url || "",
     nodes: s.nodes.map((n) => ({ uuid: n.uuid, name: n.name })),
     groups: [...new Set(s.nodes.map((n) => n.group).filter(Boolean))].sort(),

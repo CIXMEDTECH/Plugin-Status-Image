@@ -2,17 +2,17 @@
   "id": "status-image",
   "name": { "zh": "状态图片", "en": "Status images" },
   "description": {
-    "zh": "把节点的实时状态做成图片：小徽章、单节点卡片和全部节点的状态看板，可以贴到 README、论坛签名或网站里。",
-    "en": "Live node status as images: small badges, a card per node and a board of all nodes, to embed in a README, a forum signature or a site."
+    "zh": "把节点的实时状态做成图片：小徽章、单节点卡片和全部节点的状态看板，有 SVG、PNG、JPEG 和会自己刷新的 MJPEG 实时流，可以贴到 README、论坛签名或网站里。",
+    "en": "Live node status as images: small badges, a card per node and a board of all nodes, as SVG, PNG, JPEG or a self-refreshing MJPEG stream, to embed in a README, a forum signature or a site."
   },
   "author": "Vespera",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "url": "https://github.com/CIXMEDTECH/Vespera/tree/main/examples/plugin-status-image",
   "icon": "image",
   "vespera": ">=0.1.0-beta.8.3",
   "entry": "main.js",
   "permissions": ["nodes", "routes", "routes:public"],
-  "public_routes": ["/badge/*", "/card/*", "/board.svg"],
+  "public_routes": ["/badge/*", "/card/*", "/board.svg", "/board.png", "/board.jpg", "/board.mjpeg"],
   "configuration": [
     {
       "key": "board_limit",
@@ -26,6 +26,23 @@
       "name": { "zh": "在卡片和看板上显示 CPU、内存、磁盘和网速", "en": "Show CPU, memory, disk and network on cards and the board" },
       "help": { "zh": "关闭后图片只显示在线状态和可用率。", "en": "When off, images show only whether nodes are up and their availability." },
       "default": true
+    },
+    {
+      "key": "live",
+      "type": "switch",
+      "name": { "zh": "提供 MJPEG 实时流", "en": "Offer live MJPEG streams" },
+      "help": {
+        "zh": "实时流在被查看期间每隔几秒重画一次，一直占用一条连接，同一时间最多 32 路，每路最长 1 小时。",
+        "en": "A live stream draws itself again every few seconds while it is on screen and keeps a connection open: at most 32 at a time, each for up to an hour."
+      },
+      "default": true
+    },
+    {
+      "key": "live_interval",
+      "type": "number",
+      "name": { "zh": "实时流最短刷新间隔（秒）", "en": "Shortest refresh of a live stream (seconds)" },
+      "help": { "zh": "地址里要求的刷新间隔不能比它短。1–60。", "en": "An interval asked for in the address cannot be shorter. 1-60." },
+      "default": 2
     }
   ],
   "pages": [{ "file": "ui/index.html", "title": { "zh": "状态图片", "en": "Status images" }, "icon": "image" }]
