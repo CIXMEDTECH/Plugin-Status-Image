@@ -1,7 +1,7 @@
 // Status images: the live state of nodes drawn as SVG, at addresses anyone can
 // embed with a plain <img>. Every request draws the current state (kept for a few
 // seconds), so the picture is as fresh as its last load. Hidden nodes are never
-// drawn, and a private site has no images at all.
+// drawn. The images are public even when the site itself needs a login.
 const v = require("vespera");
 
 const GREEN = "#2fa36b", AMBER = "#d48a0b", RED = "#dc3d43", GRAY = "#8a909c";
@@ -217,6 +217,12 @@ async function deliver(kind, q, draw, maxAge, background) {
   return { stream: draw, interval: every * 1000, scale, background, quality: 80 };
 }
 
+/** A configured image address prefix, without a trailing slash; "" when unset or not http(s). */
+function base(u) {
+  u = String(u || "").trim().replace(/\/+$/, "");
+  return /^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/i.test(u) ? u : "";
+}
+
 function clock() {
   const t = v.time.now(), p = (n) => String(n).padStart(2, "0");
   return `${p(t.hour)}:${p(t.minute)}:${p(t.second)}`;
@@ -225,7 +231,6 @@ function clock() {
 // /badge/node/<uuid>.<kind> and /badge/page/<slug>.<kind>; ?metric=uptime, ?label=, ?lang=zh
 v.route("GET", "/badge/*", async (req) => {
   const s = await state();
-  if (s.site.private) return missing;
   const q = query(req), zh = q.lang === "zh";
   const node = address(req.path, "/badge/node/"), page = address(req.path, "/badge/page/");
   if (node) {
@@ -273,11 +278,10 @@ v.route("GET", "/badge/*", async (req) => {
 v.route("GET", "/card/*", async (req) => {
   const s = await state();
   const a = address(req.path, "/card/");
-  if (s.site.private || !a || !s.nodes.some((x) => x.uuid === a.name)) return missing;
+  if (!a || !s.nodes.some((x) => x.uuid === a.name)) return missing;
   const q = query(req), c = THEMES[q.theme] || THEMES.light;
   const draw = async () => {
     const now = await state();
-    if (now.site.private) gone();
     return card(now.nodes.find((x) => x.uuid === a.name) || gone(), now, q.lang === "zh", c);
   };
   return deliver(a.kind, q, draw, 10, c.bg);
@@ -286,12 +290,9 @@ v.route("GET", "/card/*", async (req) => {
 // /board.<kind>; ?theme=dark, ?lang=zh, ?group=<node group>
 for (const kind of KINDS) {
   v.route("GET", `/board.${kind}`, async (req) => {
-    const s = await state();
-    if (s.site.private) return missing;
     const q = query(req), c = THEMES[q.theme] || THEMES.light;
     const draw = async () => {
       const now = await state();
-      if (now.site.private) gone();
       const nodes = q.group ? now.nodes.filter((n) => n.group === q.group) : now.nodes;
       return board(now, nodes, q.lang === "zh", c, clock());
     };
@@ -305,10 +306,11 @@ v.route("GET", "/targets", async () => {
   const pages = await v.status.pages();
   const cfg = await v.config.get();
   return {
-    private: !!s.site.private,
     live: cfg.live !== false,
     live_interval: clamp(Math.round(Number(cfg.live_interval) || 2), 1, 60),
     url: s.site.url || "",
+    // Where the images are published, when not at the panel's own address.
+    base_url: base(cfg.base_url),
     nodes: s.nodes.map((n) => ({ uuid: n.uuid, name: n.name })),
     groups: [...new Set(s.nodes.map((n) => n.group).filter(Boolean))].sort(),
     pages: pages.filter((p) => p.enabled).map((p) => ({ slug: p.slug, title: p.title })),

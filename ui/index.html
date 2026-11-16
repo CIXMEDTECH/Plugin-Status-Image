@@ -20,13 +20,11 @@
       .preview img { max-width: 100%; height: auto; }
       .code { display: flex; gap: 8px; }
       .code input { flex: 1; min-width: 0; font: 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
-      .warn { color: var(--bad); }
       .note { margin: 12px 0 0; font-size: 12px; color: var(--faint); }
     </style>
   </head>
   <body>
     <p id="about"></p>
-    <p id="private" class="warn" hidden></p>
     <div id="tool">
       <div class="tabs" id="tabs" role="tablist"></div>
       <div class="opts" id="opts"></div>
@@ -47,24 +45,22 @@
       const TEXT = {
         zh: {
           about: "把节点的实时状态做成图片，贴到 README、论坛签名或网站里。图片每次被加载时都是当时的状态。",
-          private: "站点设为私有时不提供状态图片。",
           tabs: { badge: "节点徽章", page: "状态页徽章", card: "节点卡片", board: "状态看板" },
           status: "在线状态", uptime: "可用率（30 天）", light: "浅色", dark: "深色", allGroups: "全部分组",
           url: "图片地址", copy: "复制", none: "没有可用的项目",
           types: { svg: "SVG", png: "PNG", jpg: "JPEG", mjpeg: "MJPEG 实时流" },
           every: (s) => `每 ${s} 秒刷新`, normal: "标准大小", sharp: "高清（2 倍）",
-          note: "隐藏的节点不会出现在任何图片里。卡片和看板上是否显示用量，在这个插件的设置里选择。",
+          note: "隐藏的节点不会出现在任何图片里，私有站点也可以使用。卡片和看板上是否显示用量、图片地址前缀，在这个插件的设置里修改。",
           live: "MJPEG 实时流贴出去后会自己不停刷新，适合论坛签名和网页；GitHub 这类会缓存图片的网站不支持，请用 SVG 或 PNG。",
         },
         en: {
           about: "Live node status as images, to put in a README, a forum signature or a site. Each time an image loads it shows the state at that moment.",
-          private: "A private site has no status images.",
           tabs: { badge: "Node badge", page: "Status page badge", card: "Node card", board: "Status board" },
           status: "Online or offline", uptime: "Availability (30 days)", light: "Light", dark: "Dark", allGroups: "All groups",
           url: "Image address", copy: "Copy", none: "Nothing to show yet",
           types: { svg: "SVG", png: "PNG", jpg: "JPEG", mjpeg: "MJPEG live stream" },
           every: (s) => `Refresh every ${s}s`, normal: "Normal size", sharp: "Sharp (2×)",
-          note: "Hidden nodes never appear in any image. Whether cards and the board show usage is chosen in this plugin's settings.",
+          note: "Hidden nodes never appear in any image; images work on a private site too. Whether cards and the board show usage, and the image address prefix, are set in this plugin's settings.",
           live: "A live MJPEG stream keeps refreshing itself once embedded, for forum signatures and web pages. Sites that cache images, such as GitHub, cannot show it: use SVG or PNG there.",
         },
       };
@@ -90,7 +86,6 @@
       function target() {
         const q = new URLSearchParams();
         if (ctx.lang === "zh") q.set("lang", "zh");
-        const base = `/api/plugin/${ctx.plugin}`;
         const ext = pick.type;
         if (ext !== "svg" && pick.scale === "2") q.set("scale", "2");
         if (ext === "mjpeg" && pick.interval) q.set("interval", pick.interval);
@@ -99,17 +94,17 @@
           if (!n) return null;
           if (kind === "badge" && pick.metric === "uptime") q.set("metric", "uptime");
           if (kind === "card" && pick.theme === "dark") q.set("theme", "dark");
-          return { path: `${base}/${kind === "badge" ? "badge/node" : "card"}/${n.uuid}.${ext}`, q, link: `/node/${n.uuid}`, name: n.name };
+          return { path: `/${kind === "badge" ? "badge/node" : "card"}/${n.uuid}.${ext}`, q, link: `/node/${n.uuid}`, name: n.name };
         }
         if (kind === "page") {
           const p = data.pages.find((x) => x.slug === pick.page);
           if (!p) return null;
           if (pick.metric === "uptime") q.set("metric", "uptime");
-          return { path: `${base}/badge/page/${p.slug}.${ext}`, q, link: `/${p.slug}`, name: p.title };
+          return { path: `/badge/page/${p.slug}.${ext}`, q, link: `/${p.slug}`, name: p.title };
         }
         if (pick.theme === "dark") q.set("theme", "dark");
         if (pick.group) q.set("group", pick.group);
-        return { path: `${base}/board.${ext}`, q, link: "/", name: "status" };
+        return { path: `/board.${ext}`, q, link: "/", name: "status" };
       }
       function draw() {
         $("tabs").replaceChildren(
@@ -149,12 +144,15 @@
           return vespera.resize();
         }
         const qs = tg.q.toString();
-        // The preview comes from the panel as it is open now; the code uses its public address.
-        img.src = `${ctx.origin}${tg.path}${qs ? `?${qs}` : ""}`;
+        // The preview comes from the panel as it is open now; the code uses the public
+        // address: the image address prefix from the settings, or the site's own.
+        const own = `/api/plugin/${ctx.plugin}`;
+        img.src = `${ctx.origin}${own}${tg.path}${qs ? `?${qs}` : ""}`;
         img.alt = tg.name;
         img.onload = () => vespera.resize();
         const site = (data.url || ctx.origin).replace(/\/+$/, "");
-        const src = `${site}${tg.path}${qs ? `?${qs}` : ""}`, href = `${site}${tg.link}`;
+        const prefix = data.base_url || `${site}${own}`;
+        const src = `${prefix}${tg.path}${qs ? `?${qs}` : ""}`, href = `${site}${tg.link}`;
         const f = $("format").value;
         code.value = f === "markdown" ? `[![${tg.name}](${src})](${href})` : f === "html" ? `<a href="${href}"><img src="${src}" alt="${tg.name}"></a>` : src;
         vespera.resize();
@@ -171,10 +169,7 @@
         $("copy").textContent = t.copy;
         $("format").options[2].textContent = t.url;
         data = (await vespera.fetch("/targets")).json();
-        $("private").hidden = !data.private;
-        $("private").textContent = t.private;
-        $("tool").hidden = data.private;
-        if (!data.private) draw();
+        draw();
         vespera.resize();
       });
     </script>

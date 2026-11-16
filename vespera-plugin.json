@@ -6,14 +6,24 @@
     "en": "Live node status as images: small badges, a card per node and a board of all nodes, as SVG, PNG, JPEG or a self-refreshing MJPEG stream, to embed in a README, a forum signature or a site."
   },
   "author": "Vespera",
-  "version": "1.1.0",
-  "url": "https://github.com/CIXMEDTECH/Vespera/tree/main/examples/plugin-status-image",
+  "version": "1.2.0",
+  "url": "https://github.com/CIXMEDTECH/Plugin-Status-Image",
   "icon": "image",
   "vespera": ">=0.1.0-beta.8.3",
   "entry": "main.js",
   "permissions": ["nodes", "routes", "routes:public"],
   "public_routes": ["/badge/*", "/card/*", "/board.svg", "/board.png", "/board.jpg", "/board.mjpeg"],
   "configuration": [
+    {
+      "key": "base_url",
+      "type": "string",
+      "name": { "zh": "图片地址前缀", "en": "Image address prefix" },
+      "help": {
+        "zh": "生成嵌入代码时用它代替 <站点地址>/api/plugin/status-image，例如 https://img.example.com 或 https://example.com/status。需要自己在反向代理里把这个地址转发到 /api/plugin/status-image/。留空则使用站点地址。",
+        "en": "Used instead of <site address>/api/plugin/status-image in the embed code, e.g. https://img.example.com or https://example.com/status. Your reverse proxy has to forward it to /api/plugin/status-image/. Leave empty to use the site address."
+      },
+      "default": ""
+    },
     {
       "key": "board_limit",
       "type": "number",
